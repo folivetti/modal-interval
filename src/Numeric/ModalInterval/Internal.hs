@@ -44,6 +44,7 @@ module Numeric.ModalInterval.Internal
 
 import Numeric.ModalInterval.Exception
 import Control.Exception as Exception
+import Data.SRTree (OptIntPow(..))
 
 -- | Kaucher arithmetic can describe a proper (forall) and improper (exists)
 -- intervals with different semantics.
@@ -581,4 +582,8 @@ instance RealFloat a => RealFloat (Kaucher a) where
   isInfinite InvalidInterval = False 
   isInfinite (K a b) = isInfinite a || isInfinite b
   {-# INLINE isInfinite #-}
-  
+
+instance (Ord a, RealFloat a) => OptIntPow (Kaucher a) where
+  (^.) = (|^^|)
+  {-# INLINE (^.) #-}
+

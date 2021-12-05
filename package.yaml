@@ -23,7 +23,9 @@ dependencies:
 - base >= 4.7 && < 5
 - tasty
 - tasty-hunit
-
+- srtree
+- containers
+- mtl
 library:
   source-dirs: src
 

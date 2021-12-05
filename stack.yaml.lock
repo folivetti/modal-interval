@@ -3,7 +3,18 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    name: srtree
+    version: 0.1.0.0
+    git: https://github.com/folivetti/srtree.git
+    pantry-tree:
+      size: 817
+      sha256: bdda920897cb010e3b3201336c00d31d048fa8ef9e8d1adc226fcbb8c7e82762
+    commit: a734d98552c55992ccd12111b233971ed951d3e7
+  original:
+    git: https://github.com/folivetti/srtree.git
+    commit: a734d98552c55992ccd12111b233971ed951d3e7
 snapshots:
 - completed:
     size: 586296
