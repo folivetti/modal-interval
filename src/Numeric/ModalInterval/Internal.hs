@@ -303,8 +303,10 @@ posInfinity =  1 / 0
 {-# INLINE negInfinity #-}
 {-# INLINE posInfinity #-}
 
-fmod :: RealFloat a => a -> a -> a
-fmod a b = a - q*b where
+fmod :: Kaucher a -> Kaucher a -> Kaucher a
+fmod a b | isInvalid r || isEmpty r = error $ show a <> " " <> show b
+         | otherwise = a - q*b where
+  r = a - q*b
   q = realToFrac (truncate $ a / b :: Integer)
 {-# INLINE fmod #-}
 
