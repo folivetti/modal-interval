@@ -309,8 +309,19 @@ isOpen _ = False
 {-# INLINE isOpen #-}
 
 fmod :: (RealFloat a) => Kaucher a -> Kaucher a -> Kaucher a
+fmod EmptyInterval _ = EmptyInterval
+fmod _ EmptyInterval = EmptyInterval
+fmod InvalidInterval _ = InvalidInterval
+fmod _ InvalidInterval = InvalidInterval
 fmod a b = a - q*b where
-  q = realToFrac (truncate $ a / b :: Integer)
+  q = rtrunc (a / b)
+  rtrunc EmptyInterval = EmptyInterval
+  rtrunc InvalidInterval = InvalidInterval
+  rtrunc z@(K x y) | isInfinite x && isInfinite y = whole
+                   | isInfinite x = x <.< (realToFrac $ truncate y)
+                   | isInfinite y = (realToFrac $ truncate x) <.< y
+                   | otherwise    = realToFrac $ truncate z
+  
 {-# INLINE fmod #-}
 
 -- | lift a monotone increasing function over a given interval
