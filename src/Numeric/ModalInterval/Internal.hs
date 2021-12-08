@@ -303,7 +303,7 @@ posInfinity =  1 / 0
 {-# INLINE negInfinity #-}
 {-# INLINE posInfinity #-}
 
-fmod :: Kaucher a -> Kaucher a -> Kaucher a
+fmod :: (Show a, RealFloat a) => Kaucher a -> Kaucher a -> Kaucher a
 fmod a b | isInvalid r || isEmpty r = error $ show a <> " " <> show b
          | otherwise = a - q*b where
   r = a - q*b
@@ -455,7 +455,7 @@ instance RealFloat a => RealFrac (Kaucher a) where
   truncate x               = truncate (midpoint x)
   {-# INLINE truncate #-}
 
-instance (RealFloat a, Ord a) => Floating (Kaucher a) where
+instance (RealFloat a, Ord a, Show a) => Floating (Kaucher a) where
   pi = singleton pi
   {-# INLINE pi #-}
   exp EmptyInterval   = EmptyInterval
@@ -564,7 +564,7 @@ instance (RealFloat a, Ord a) => Floating (Kaucher a) where
   
 -- | TODO: implement this instance completly.
 -- For now only isNaN and isInfinite functions are useful to me :)
-instance RealFloat a => RealFloat (Kaucher a) where
+instance (Show a, RealFloat a) => RealFloat (Kaucher a) where
   floatRadix = error "unimplemented"
   floatDigits = error "unimplemented"
   floatRange = error "unimplemented"
