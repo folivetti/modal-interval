@@ -51,9 +51,9 @@ import Data.SRTree (OptIntPow(..))
 --
 -- The interval `K x y` is proper if `x >= y` and improper otherwise.
 data Kaucher a where
-    K               :: !a -> !a -> Kaucher a
-    EmptyInterval   :: Kaucher a 
-    InvalidInterval :: Kaucher a
+    K               :: RealFloat a => !a -> !a -> Kaucher a
+    EmptyInterval   :: RealFloat a => Kaucher a 
+    InvalidInterval :: RealFloat a => Kaucher a
 
 deriving instance Eq a => Eq (Kaucher a)
 deriving instance Ord a => Ord (Kaucher a)
@@ -104,7 +104,7 @@ whole :: RealFloat a => Kaucher a
 whole = K (-1/0) (1/0)
 {-# INLINE whole #-}
 
-empty :: Kaucher a
+empty :: RealFloat a => Kaucher a
 empty = EmptyInterval
 {-# INLINE empty #-}
 
@@ -215,11 +215,11 @@ y |^| 0        = singleton 1
 y |^| 1        = y
 (K a b) |^| k 
   | k < 0            = error "negative exponent in (a...b)^k"
-  | odd k            = K (a ^ k) (b ^ k)
-  | a >= 0 && b >= 0 = K (a ^ k) (b ^ k)
-  | a <  0 && b <  0 = K (b ^ k) (a ^ k)
-  | a <  0 && b >= 0 = K 0 (max (a ^ k) (b ^ k))
-  | a >= 0 && b <  0 = K (max (a ^ k) (b ^ k)) 0
+  | odd k            = (a ^ k) <.< (b ^ k)
+  | a >= 0 && b >= 0 = (a ^ k) <.< (b ^ k)
+  | a <  0 && b <  0 = (b ^ k) <.< (a ^ k)
+  | a <  0 && b >= 0 = 0 <.< (max (a ^ k) (b ^ k))
+  | a >= 0 && b <  0 = (max (a ^ k) (b ^ k)) <.< 0
 {-# INLINE (|^|) #-}
   
 (|^^|) :: (RealFloat a, Ord a, Integral b) => Kaucher a -> b -> Kaucher a  
@@ -235,12 +235,12 @@ infixr 8 |^^|
 --
 -- >>> intersection (1 ... 10 :: Interval Double) (5 ... 15 :: Interval Double)
 -- 5.0 ... 10.0
-intersection :: Ord a => Kaucher a -> Kaucher a -> Kaucher a
+intersection :: (RealFloat a, Ord a) => Kaucher a -> Kaucher a -> Kaucher a
 intersection InvalidInterval _ = InvalidInterval
 intersection _ InvalidInterval = InvalidInterval
 intersection k1@(K _ _) k2@(K _ _)
   | b < x || a > y = EmptyInterval
-  | otherwise        = K (max a x) (min b y)
+  | otherwise        = (max a x) <.< (min b y)
   where
     K a b = proper k1
     K x y = proper k2
@@ -255,17 +255,17 @@ intersection _ _ = EmptyInterval
 -- >>> hull (15 ... 85 :: Interval Double) (0 ... 10 :: Interval Double)
 -- 0.0 ... 85.0
 hull :: Ord a => Kaucher a -> Kaucher a -> Kaucher a
-hull (K a b) (K a' b') = K (min a a') (max b b')
+hull (K a b) (K a' b') = (min a a') <.< (max b b')
 hull EmptyInterval x = x
 hull x EmptyInterval = x
 hull _ _ = Exception.throw (InvalidIntervalError "hull")
 {-# INLINE hull #-}
 
-meet :: Ord a => [Kaucher a] -> Kaucher a
+meet :: (RealFloat a, Ord a) => [Kaucher a] -> Kaucher a
 meet = foldr hull EmptyInterval
 {-# INLINE meet #-}
 
-join :: Ord a => [Kaucher a] -> Kaucher a
+join :: (RealFloat a, Ord a) => [Kaucher a] -> Kaucher a
 join = foldr1 intersection
 {-# INLINE join #-}
 
@@ -309,14 +309,14 @@ fmod a b = a - q*b where
 {-# INLINE fmod #-}
 
 -- | lift a monotone increasing function over a given interval
-increasing :: (a -> b) -> Kaucher a -> Kaucher b
-increasing f (K a b)       = K (f a) (f b)
+increasing :: (RealFloat a, RealFloat b) => (a -> b) -> Kaucher a -> Kaucher b
+increasing f (K a b)       = (f a) <.< (f b)
 increasing _ EmptyInterval = EmptyInterval
 increasing _ InvalidInterval = InvalidInterval
 
 -- | lift a monotone decreasing function over a given interval
-decreasing :: (a -> b) -> Kaucher a -> Kaucher b
-decreasing f (K a b)       = K (f b) (f a)
+decreasing :: (RealFloat a, RealFloat b) => (a -> b) -> Kaucher a -> Kaucher b
+decreasing f (K a b)       = (f b) <.< (f a)
 decreasing _ EmptyInterval = EmptyInterval
 decreasing _ InvalidInterval = InvalidInterval
 
@@ -325,11 +325,11 @@ dualize :: (Kaucher a -> Kaucher a) -> Kaucher a -> Kaucher a
 dualize f = dual . f . dual
 
 instance (Num a, Ord a, RealFloat a) => Num (Kaucher a) where
-  K a b + K x y             = K (a + x) (b + y)
+  K a b + K x y             = (a + x) <.< (b + y)
   k1 + k2 | isInvalid k1 || isInvalid k2 = InvalidInterval
           | otherwise                    = EmptyInterval
   {-# INLINE (+) #-}
-  K a b - K x y = K (a - y) (b - x)
+  K a b - K x y = (a - y) <.< (b - x)
   k1 - k2 | isInvalid k1 || isInvalid k2 = InvalidInterval
           | otherwise                    = EmptyInterval
   {-# INLINE (-) #-}
@@ -339,30 +339,30 @@ instance (Num a, Ord a, RealFloat a) => Num (Kaucher a) where
     | a <  0 && b >= 0                           = case3mul -- forall
     | otherwise                                  = case4mul -- forall and exists
     where
-      case1mul | x >= 0 && y >= 0 = K (a * x) (b * y)
-               | x >= 0 && y <  0 = K (a * x) (a * y)
-               | x <  0 && y >= 0 = K (b * x) (b * y)
-               | x <  0 && y <  0 = K (b * x) (a * y)                              
-      case2mul | x >= 0 && y >= 0 = K (a * x) (b * x)
-               | x >= 0 && y <  0 = K (max (a * x) (b * y)) (min (a * y) (b * x))
-               | x <  0 && y >= 0 = K 0 0
-               | x <  0 && y <  0 = K (b * y) (a * x)
-      case3mul | x >= 0 && y >= 0 = K (a * y) (b * y)
-               | x >= 0 && y <  0 = K 0 0 
-               | x <  0 && y >= 0 = K (min (a * y) (b * x)) (max (a * x) (b * y))
-               | x <  0 && y <  0 = K (b * x) (a * x)                              
-      case4mul | x >= 0 && y >= 0 = K (a * y) (b * x)
-               | x >= 0 && y <  0 = K (b * y) (b * x)
-               | x <  0 && y >= 0 = K (a * y) (a * x)
-               | x <  0 && y <  0 = K (b * y) (a * x)                       
+      case1mul | x >= 0 && y >= 0 = (a * x) <.< (b * y)
+               | x >= 0 && y <  0 = (a * x) <.< (a * y)
+               | x <  0 && y >= 0 = (b * x) <.< (b * y)
+               | x <  0 && y <  0 = (b * x) <.< (a * y)                              
+      case2mul | x >= 0 && y >= 0 = (a * x) <.< (b * x)
+               | x >= 0 && y <  0 = (max (a * x) (b * y)) <.< (min (a * y) (b * x))
+               | x <  0 && y >= 0 = 0 <.< 0
+               | x <  0 && y <  0 = (b * y) <.< (a * x)
+      case3mul | x >= 0 && y >= 0 = (a * y) <.< (b * y)
+               | x >= 0 && y <  0 = 0 <.< 0 
+               | x <  0 && y >= 0 = (min (a * y) (b * x)) <.< (max (a * x) (b * y))
+               | x <  0 && y <  0 = (b * x) <.< (a * x)                              
+      case4mul | x >= 0 && y >= 0 = (a * y) <.< (b * x)
+               | x >= 0 && y <  0 = (b * y) <.< (b * x)
+               | x <  0 && y >= 0 = (a * y) <.< (a * x)
+               | x <  0 && y <  0 = (b * y) <.< (a * x)                       
   k1 * k2 | isInvalid k1 || isInvalid k2 = InvalidInterval
           | otherwise                    = EmptyInterval
   {-# INLINE (*) #-}
   abs x@(K a b)
     | a >= 0 && b >= 0 = x
     | a < 0  && b <  0 = negate x
-    | a < 0  && b >= 0 = K 0 $ max (- a) b
-    | a >= 0 && b <  0 = K (max a (- b)) $ 0
+    | a < 0  && b >= 0 = 0 <.< max (- a) b
+    | a >= 0 && b <  0 = (max a (- b)) <.< 0
   abs EmptyInterval    = EmptyInterval
   abs InvalidInterval  = InvalidInterval
   {-# INLINE abs #-}
@@ -395,37 +395,37 @@ instance (RealFloat a, Ord a) => Fractional (Kaucher a) where
     | a <  0 && b >= 0    = case3div
     | a <  0 && b <  0    = case4div
     where
-      case1div | x >  0 && y >  0 = K (a/y)      (b/x)
-               | x <  0 && y <  0 = K (b/y)      (a/x)
-               | x >  0 && y == 0 = K posInfinity (b/x)
-               | x == 0 && y >  0 = K (a/y) posInfinity
-               | x <  0 && y == 0 = K negInfinity (a/x)
-               | x == 0 && y <  0 = K (b/y) negInfinity
-      case2div | x >  0 && y >  0 = K (a/y)      (b/y)
-               | x <  0 && y <  0 = K (b/x)      (a/x)
-               | x >  0 && y == 0 = K posInfinity negInfinity
-               | x == 0 && y >  0 = K (a/y)      (b/y)
-               | x <  0 && y == 0 = K (b/x)      (a/x)
-               | x == 0 && y <  0 = K posInfinity negInfinity
-      case3div | x >  0 && y >  0 = K (a/x)      (b/x)
-               | x <  0 && y <  0 = K (b/y)      (a/y)
-               | x >  0 && y == 0 = K (a/x)      (b/x)
-               | x == 0 && y >  0 = K negInfinity posInfinity
-               | x <  0 && y == 0 = K negInfinity posInfinity
-               | x == 0 && y <  0 = K (b/y)      (a/y)
-      case4div | x >  0 && y >  0 = K (a/x)      (b/y)
-               | x <  0 && y <  0 = K (b/x)      (a/y)
-               | x >  0 && y == 0 = K (a/x) negInfinity
-               | x == 0 && y >  0 = K negInfinity (b/y)
-               | x <  0 && y == 0 = K (b/x) posInfinity
-               | x == 0 && y <  0 = K posInfinity (a/y)
+      case1div | x >  0 && y >  0 =   (a/y) <.< (b/x)
+               | x <  0 && y <  0 =   (b/y) <.< (a/x)
+               | x >  0 && y == 0 =   posInfinity <.< (b/x)
+               | x == 0 && y >  0 =   (a/y) <.< posInfinity
+               | x <  0 && y == 0 =   negInfinity <.< (a/x)
+               | x == 0 && y <  0 =   (b/y) <.< negInfinity
+      case2div | x >  0 && y >  0 =   (a/y) <.< (b/y)
+               | x <  0 && y <  0 =   (b/x) <.< (a/x)
+               | x >  0 && y == 0 =   posInfinity <.< negInfinity
+               | x == 0 && y >  0 =   (a/y) <.< (b/y)
+               | x <  0 && y == 0 =   (b/x) <.< (a/x)
+               | x == 0 && y <  0 =   posInfinity <.< negInfinity
+      case3div | x >  0 && y >  0 =   (a/x) <.< (b/x)
+               | x <  0 && y <  0 =   (b/y) <.< (a/y)
+               | x >  0 && y == 0 =   (a/x) <.< (b/x)
+               | x == 0 && y >  0 =   negInfinity <.< posInfinity
+               | x <  0 && y == 0 =   negInfinity <.< posInfinity
+               | x == 0 && y <  0 =   (b/y) <.< (a/y)
+      case4div | x >  0 && y >  0 =   (a/x) <.< (b/y)
+               | x <  0 && y <  0 =   (b/x) <.< (a/y)
+               | x >  0 && y == 0 =   (a/x) <.< negInfinity
+               | x == 0 && y >  0 =   negInfinity <.< (b/y)
+               | x <  0 && y == 0 =   (b/x) <.< posInfinity
+               | x == 0 && y <  0 =   posInfinity <.< (a/y)
   {-# INLINE (/) #-}
   recip EmptyInterval   = InvalidInterval
   recip InvalidInterval = InvalidInterval
   recip y@(K 0 0)       = InvalidInterval
-  recip y@(K a 0)       = K negInfinity (1.0/a)
-  recip y@(K 0 b)       = K (1.0/b) posInfinity
-  recip y@(K a b) | 0 `notMember` y = K (1.0/b) (1.0/a)
+  recip y@(K a 0)       = negInfinity <.< (1.0/a)
+  recip y@(K 0 b)       = (1.0/b) <.< posInfinity
+  recip y@(K a b) | 0 `notMember` y = (1.0/b) <.< (1.0/a)
                   | otherwise     = InvalidInterval
   {-# INLINE recip #-}
   fromRational r  = singleton $ fromRational r
@@ -460,7 +460,7 @@ instance (RealFloat a, Ord a) => Floating (Kaucher a) where
   exp InvalidInterval = InvalidInterval
   exp x = increasing exp x
   {-# INLINE exp #-}
-  log (K a b) | a > 0 && b > 0 = K (log a) (log b)
+  log (K a b) | a > 0 && b > 0 = (log a) <.< (log b)
               | otherwise      = InvalidInterval
   log EmptyInterval = EmptyInterval
   log InvalidInterval = InvalidInterval
@@ -469,12 +469,12 @@ instance (RealFloat a, Ord a) => Floating (Kaucher a) where
   cos InvalidInterval = InvalidInterval
   cos x@(K a b) | a > b = dualize cos x -- for improper intervals
   cos x 
-    | width t >= pi = K (-1) 1
+    | width t >= pi = (-1) <.< 1
     | a >= pi = - cos (t - pi)
     | a < 0 = - cos (t + pi)
     | b <= pi = decreasing cos t
-    | b <= 2 * pi = K (-1) $ cos ((pi * 2 - a) `min` b)
-    | otherwise = K (-1) 1
+    | b <= 2 * pi = (-1) <.<  cos ((pi * 2 - a) `min` b)
+    | otherwise = (-1) <.< 1
     where
       t@(K a b) = fmod x (pi * 2)
   {-# INLINE cos #-}
@@ -525,9 +525,9 @@ instance (RealFloat a, Ord a) => Floating (Kaucher a) where
   cosh x@(K a b)
     | b < 0  = decreasing cosh x
     | a >= 0 = increasing cosh x
-    | otherwise  = K 0 $ cosh $ if - a > b
-                                then a
-                                else b
+    | otherwise  = 0 <.< cosh (if - a > b
+                                 then a
+                                 else b)
   {-# INLINE cosh #-}
   tanh EmptyInterval   = EmptyInterval
   tanh InvalidInterval = InvalidInterval 
