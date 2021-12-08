@@ -383,13 +383,16 @@ instance RealFloat a => Real (Kaucher a) where
   {-# INLINE toRational #-}
 
 instance (RealFloat a, Ord a) => Fractional (Kaucher a) where
+  EmptyInterval / _  = EmptyInterval
+  _ / EmptyInterval  = EmptyInterval
+  InvalidInterval / _ = InvalidInterval
+  _ / InvalidInterval = InvalidInterval
   k1@(K a b) / k2@(K x y)
-    | (x > 0 && y < 0) || (x < 0 && y > 0) || (x == 0 && y == 0) = InvalidInterval
+    | (x > 0 && y < 0) || (x < 0 && y > 0) || (x == 0 && y == 0) ||  0 `member` (proper k2) = InvalidInterval
     | a >= 0 && b >= 0    = case1div
     | a >= 0 && b <  0    = case2div
     | a <  0 && b >= 0    = case3div
     | a <  0 && b <  0    = case4div
-    | 0 `member` (proper k2) = InvalidInterval
     where
       case1div | x >  0 && y >  0 = K (a/y)      (b/x)
                | x <  0 && y <  0 = K (b/y)      (a/x)
@@ -415,8 +418,6 @@ instance (RealFloat a, Ord a) => Fractional (Kaucher a) where
                | x == 0 && y >  0 = K negInfinity (b/y)
                | x <  0 && y == 0 = K (b/x) posInfinity
                | x == 0 && y <  0 = K posInfinity (a/y)
-  k1 / k2 | isInvalid k1 || isInvalid k2 = InvalidInterval
-          | otherwise                    = EmptyInterval                                      
   {-# INLINE (/) #-}
   recip EmptyInterval   = InvalidInterval
   recip InvalidInterval = InvalidInterval
@@ -487,7 +488,7 @@ instance (RealFloat a, Ord a) => Floating (Kaucher a) where
     | a <= - pi / 2 || b >= pi / 2 = whole
     | otherwise = increasing tan x
     where
-      t = x `fmod` pi
+      t = fmod x pi
       K a b | t >= pi / 2 = t - pi
             | otherwise    = t
   {-# INLINE tan #-}
