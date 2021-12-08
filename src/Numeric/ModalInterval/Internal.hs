@@ -166,8 +166,8 @@ bisect (K a b) = (K a m, K m b) where m = a + (b - a) / 2
 -- *** Exception: empty interval
 midpoint :: Fractional a => Kaucher a -> a
 midpoint (K a b) = a + (b - a) / 2
-midpoint EmptyInterval   = Exception.throw EmptyIntervalError
-midpoint InvalidInterval = Exception.throw InvalidIntervalError
+midpoint EmptyInterval   = Exception.throw (EmptyIntervalError "midpoint")
+midpoint InvalidInterval = Exception.throw (InvalidIntervalError "midpoint")
 {-# INLINE midpoint #-}
 
 -- | Determine if a point is in the interval.
@@ -258,7 +258,7 @@ hull :: Ord a => Kaucher a -> Kaucher a -> Kaucher a
 hull (K a b) (K a' b') = K (min a a') (max b b')
 hull EmptyInterval x = x
 hull x EmptyInterval = x
-hull _ _ = Exception.throw InvalidIntervalError
+hull _ _ = Exception.throw (InvalidIntervalError "hull")
 {-# INLINE hull #-}
 
 meet :: Ord a => [Kaucher a] -> Kaucher a
@@ -375,8 +375,8 @@ instance (Num a, Ord a, RealFloat a) => Num (Kaucher a) where
  
 -- | 'realToFrac' will use the midpoint
 instance RealFloat a => Real (Kaucher a) where
-  toRational EmptyInterval   = Exception.throw EmptyIntervalError  -- TODO: exceptions
-  toRational InvalidInterval = Exception.throw InvalidIntervalError
+  toRational EmptyInterval   = Exception.throw (EmptyIntervalError "toRational")
+  toRational InvalidInterval = Exception.throw (InvalidIntervalError "toRational")
   toRational (K ra rb) = a + (b - a) / 2 where
     a = toRational ra
     b = toRational rb
@@ -435,19 +435,19 @@ instance RealFloat a => RealFrac (Kaucher a) where
       b = truncate (midpoint x)
   {-# INLINE properFraction #-}
   ceiling (K a b) = ceiling b
-  ceiling EmptyInterval   = Exception.throw EmptyIntervalError
-  ceiling InvalidInterval = Exception.throw InvalidIntervalError
+  ceiling EmptyInterval   = Exception.throw (EmptyIntervalError "ceiling")
+  ceiling InvalidInterval = Exception.throw (InvalidIntervalError "ceiling")
   {-# INLINE ceiling #-}
   floor (K a b) = floor a
-  floor EmptyInterval   = Exception.throw EmptyIntervalError
-  floor InvalidInterval = Exception.throw InvalidIntervalError
+  floor EmptyInterval   = Exception.throw (EmptyIntervalError "floor")
+  floor InvalidInterval = Exception.throw (InvalidIntervalError "floor")
   {-# INLINE floor #-}
-  round EmptyInterval   = Exception.throw EmptyIntervalError
-  round InvalidInterval = Exception.throw InvalidIntervalError
+  round EmptyInterval   = Exception.throw (EmptyIntervalError "round")
+  round InvalidInterval = Exception.throw (InvalidIntervalError "round")
   round x               = round (midpoint x)  
   {-# INLINE round #-}
-  truncate EmptyInterval   = Exception.throw EmptyIntervalError
-  truncate InvalidInterval = Exception.throw InvalidIntervalError
+  truncate EmptyInterval   = Exception.throw (EmptyIntervalError "truncate")
+  truncate InvalidInterval = Exception.throw (InvalidIntervalError "truncate")
   truncate x               = truncate (midpoint x)
   {-# INLINE truncate #-}
 

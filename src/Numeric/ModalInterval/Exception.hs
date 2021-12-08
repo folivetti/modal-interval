@@ -5,16 +5,16 @@ module Numeric.ModalInterval.Exception
 
 import Control.Exception 
 
-data EmptyIntervalError = EmptyIntervalError deriving (Eq, Ord)
+data EmptyIntervalError = EmptyIntervalError String deriving (Eq, Ord)
 
 instance Show EmptyIntervalError where
-    show _ = "error: partial function applied to empty interval"
+    show (EmptyIntervalError f) = "error: partial function applied to empty interval in " <> show f
 
 instance Exception EmptyIntervalError
 
-data InvalidIntervalError = InvalidIntervalError deriving (Eq, Ord) 
+data InvalidIntervalError = InvalidIntervalError String deriving (Eq, Ord) 
 
 instance Show InvalidIntervalError where
-    show _ = "error: partial function applied to NaN interval"
+    show (InvalidIntervalError f) = "error: partial function applied to NaN interval in " <> show f
 
 instance Exception  InvalidIntervalError
