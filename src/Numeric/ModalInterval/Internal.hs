@@ -418,7 +418,7 @@ instance (RealFloat a, Ord a) => Fractional (Kaucher a) where
                | x == 0 && y >  0 = K negInfinity (b/y)
                | x <  0 && y == 0 = K (b/x) posInfinity
                | x == 0 && y <  0 = K posInfinity (a/y)
-  {-# INLINE (/) #-}
+  
   recip EmptyInterval   = InvalidInterval
   recip InvalidInterval = InvalidInterval
   recip y@(K 0 0)       = InvalidInterval
