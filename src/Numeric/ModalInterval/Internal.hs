@@ -349,7 +349,9 @@ instance (Num a, Ord a, RealFloat a) => Num (Kaucher a) where
   k1 - k2 | isInvalid k1 || isInvalid k2 = InvalidInterval
           | otherwise                    = EmptyInterval
   {-# INLINE (-) #-}
-  K a b * K x y
+  k1@(K a b) * k2@(K x y)
+    | isOpen k1 && 0 `member` k2                   = InvalidInterval
+    | isOpen k2 && 0 `member` k1                   = InvalidInterval
     | a >= 0 && b >= 0                           = case1mul -- forall and exists
     | a >= 0 && b <  0                           = case2mul -- exists
     | a <  0 && b >= 0                           = case3mul -- forall
