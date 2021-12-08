@@ -303,10 +303,13 @@ posInfinity =  1 / 0
 {-# INLINE negInfinity #-}
 {-# INLINE posInfinity #-}
 
-fmod :: (Show a, RealFloat a) => Kaucher a -> Kaucher a -> Kaucher a
-fmod a b | isInvalid r || isEmpty r = error $ show a <> " " <> show b
-         | otherwise = a - q*b where
-  r = a - q*b
+isOpen :: Kaucher a -> Bool
+isOpen (K a b) | isInfinite a || isInfinite b = True
+isOpen _ = False
+{-# INLINE isOpen #-}
+
+fmod :: (RealFloat a) => Kaucher a -> Kaucher a -> Kaucher a
+fmod a b = a - q*b where
   q = realToFrac (truncate $ a / b :: Integer)
 {-# INLINE fmod #-}
 
@@ -455,7 +458,7 @@ instance RealFloat a => RealFrac (Kaucher a) where
   truncate x               = truncate (midpoint x)
   {-# INLINE truncate #-}
 
-instance (RealFloat a, Ord a, Show a) => Floating (Kaucher a) where
+instance (RealFloat a, Ord a) => Floating (Kaucher a) where
   pi = singleton pi
   {-# INLINE pi #-}
   exp EmptyInterval   = EmptyInterval
@@ -470,6 +473,7 @@ instance (RealFloat a, Ord a, Show a) => Floating (Kaucher a) where
   cos EmptyInterval   = EmptyInterval
   cos InvalidInterval = InvalidInterval
   cos x@(K a b) | a > b = dualize cos x -- for improper intervals
+                | isOpen x = InvalidInterval
   cos x 
     | width t >= pi = (-1) <.< 1
     | a >= pi = - cos (t - pi)
@@ -487,6 +491,7 @@ instance (RealFloat a, Ord a, Show a) => Floating (Kaucher a) where
   tan EmptyInterval   = EmptyInterval
   tan InvalidInterval = InvalidInterval
   tan x@(K a b) | a > b = dualize tan x -- for improper intervals
+                | isOpen x = InvalidInterval
   tan x
     | a <= - pi / 2 || b >= pi / 2 = whole
     | otherwise = increasing tan x
