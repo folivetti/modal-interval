@@ -150,6 +150,7 @@ isInvalid _ = False
 -- (Empty,Empty)
 bisect :: Fractional a => Kaucher a -> (Kaucher a, Kaucher a)
 bisect EmptyInterval = (EmptyInterval, EmptyInterval)
+bisect InvalidInterval = (InvalidInterval, InvalidInterval)
 bisect (K a b) = (K a m, K m b) where m = a + (b - a) / 2
 {-# INLINE bisect #-}
 
@@ -188,8 +189,8 @@ midpoint InvalidInterval = Exception.throw InvalidIntervalError
 --
 member :: Ord a => a -> Kaucher a -> Bool
 member x (K a b) = x >= a && x <= b
-member x EmptyInterval   = Exception.throw EmptyIntervalError
-member x InvalidInterval = Exception.throw InvalidIntervalError
+member x EmptyInterval   = False -- Exception.throw EmptyIntervalError
+member x InvalidInterval = False -- Exception.throw InvalidIntervalError
 {-# INLINE member #-}
 
 -- | Determine if a point is not included in the interval
