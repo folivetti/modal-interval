@@ -388,6 +388,7 @@ instance (RealFloat a, Ord a) => Fractional (Kaucher a) where
   InvalidInterval / _ = InvalidInterval
   _ / InvalidInterval = InvalidInterval
   k1@(K a b) / k2@(K x y)
+    | isNaN a || isNaN b || isNaN x || isNaN y = InvalidInterval
     | (x > 0 && y < 0) || (x < 0 && y > 0) || (x == 0 && y == 0) ||  0 `member` (proper k2) = InvalidInterval
     | a >= 0 && b >= 0    = case1div
     | a >= 0 && b <  0    = case2div
@@ -418,7 +419,7 @@ instance (RealFloat a, Ord a) => Fractional (Kaucher a) where
                | x == 0 && y >  0 = K negInfinity (b/y)
                | x <  0 && y == 0 = K (b/x) posInfinity
                | x == 0 && y <  0 = K posInfinity (a/y)
-  
+  {-# INLINE (/) #-}
   recip EmptyInterval   = InvalidInterval
   recip InvalidInterval = InvalidInterval
   recip y@(K 0 0)       = InvalidInterval
