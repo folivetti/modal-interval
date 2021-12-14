@@ -210,6 +210,7 @@ notMember x xs = not (member x xs)
 {-# INLINE notMember #-}
 
 (|^|) :: (RealFloat a, Ord a, Integral b) => Kaucher a -> b -> Kaucher a
+InvalidInterval |^| _ = InvalidInterval
 EmptyInterval |^| _ = EmptyInterval
 y |^| 0        = singleton 1
 y |^| 1        = y
@@ -223,6 +224,7 @@ y |^| 1        = y
 {-# INLINE (|^|) #-}
   
 (|^^|) :: (RealFloat a, Ord a, Integral b) => Kaucher a -> b -> Kaucher a  
+InvalidInterval |^^| _ = InvalidInterval
 EmptyInterval |^^| _ = EmptyInterval
 y |^^| k
   | k < 0     = recip (y |^| (-k))
