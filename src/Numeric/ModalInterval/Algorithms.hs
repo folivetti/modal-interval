@@ -90,15 +90,20 @@ pointDual t kt domains kdomains ix
 -- E.g., if xi is monotonically increasing and xij is monotonically decreasing, it replaces the domain 
 -- of xij by its dual.
 dualizer t kt domains kdomains ix
-  | occurrencesOf ix kdomains == 1          = kdomains
-  | isTotMonotonic t kt domains kdomains ix = kdomains'
-  | otherwise                               = kdomains
+  | occurrencesOf ix kdomains == 1  = kdomains
+  | varMonotonic && allMonotonic    = kdomains'
+  | otherwise                       = kdomains
   where
-    sign      = monoSign $ evalKaucher (simplify $ deriveBy ix t) domains
+    t'        = evalKaucher (simplify $ deriveBy ix t) domains
+    kt'       = mapWithKey (\k _ -> evalModal (simplify $ deriveBy k kt) kdomains) 
+              $ M.filterWithKey (\k _ -> fst k ==ix) kdomains
+    varMonotonic = isMonotonic t'
+    allMonotonic = all isMonotonic $ map snd $ M.toList kt'
+    sign      = monoSign t'
     kdomains' = mapWithKey (\ k v -> if fst k == ix 
-                                        then (toDual . incSign) k v 
+                                        then (toDual . monoSign) (kt' ! k) v 
                                         else v) kdomains
-    incSign   = monoSign . (`evalModal` kdomains) . simplify . (`deriveBy` kt)
+    --incSign   = monoSign . (`evalModal` kdomains) . simplify . (`deriveBy` kt)
     toDual s  | s == sign = id
               | otherwise = dual
 {-# INLINE dualizer #-}
