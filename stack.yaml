@@ -43,7 +43,7 @@ packages:
 # extra-deps: []
 extra-deps:
   - git: https://github.com/folivetti/srtree.git
-    commit: a734d98552c55992ccd12111b233971ed951d3e7 
+    commit: 975e0fac9d610e18f44b887ee4de6da462d126a1 
 # Override default flag values for local packages and extra-deps
 # flags: {}
 
