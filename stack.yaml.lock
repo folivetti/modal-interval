@@ -10,11 +10,11 @@ packages:
     git: https://github.com/folivetti/srtree.git
     pantry-tree:
       size: 817
-      sha256: 68ec5362e46f6d8dd41f022e42a6edf0563497e9bd58ef3213d3e4312ab7c1e5
-    commit: f19a1d1e70029a609ba47f9cf010b9ca381df043
+      sha256: a2bfaa19d78c1e1d5e48000409b8e6da6da7b25f7515ab855f90e5040c7d544d
+    commit: 70ef3abd363c554fa3a366985e02e064044e6b5c
   original:
     git: https://github.com/folivetti/srtree.git
-    commit: f19a1d1e70029a609ba47f9cf010b9ca381df043
+    commit: 70ef3abd363c554fa3a366985e02e064044e6b5c
 snapshots:
 - completed:
     size: 586296
