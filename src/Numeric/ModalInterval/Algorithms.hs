@@ -12,7 +12,7 @@ import Data.Map.Strict hiding (map, singleton, empty, foldr, filter)
 import qualified Data.Map.Strict as M
 import Data.SRTree
 import Data.Maybe (fromMaybe)
-import Data.SRTree (deriveBy, relabelOccurrences, getChildren, simplify)
+import Data.SRTree (deriveBy, relabelOccurrences, getChildren)
 
 type Domains = Map Int (Kaucher Double)
 type KDomains = Map (Int, Int) (Kaucher Double) -- the second element is the incidence counter
@@ -74,11 +74,11 @@ pointDual t kt domains kdomains ix
   | otherwise                               = kdomainsPoint
   where
     kdomainsPoint = mapOnKey ix (singleton . midpoint) kdomains
-    sign          = monoSign $ evalKaucher (simplify $ deriveBy ix t) domains
+    sign          = monoSign $ evalKaucher (deriveBy ix t) domains
     kdomainsDual  = mapWithKey (\k v -> if fst k==ix 
                                            then (toDual . incSign) k v 
                                            else v) kdomains 
-    incSign       = monoSign . (`evalModal` kdomains) . simplify . (`deriveBy` kt)
+    incSign       = monoSign . (`evalModal` kdomains) . (`deriveBy` kt)
     toDual s  | s == sign = id
               | otherwise = dual
 {-# INLINE pointDual #-}
@@ -94,8 +94,8 @@ dualizer t kt domains kdomains ix
   | varMonotonic && allMonotonic    = kdomains'
   | otherwise                       = kdomains
   where
-    t'        = evalKaucher (simplify $ deriveBy ix t) domains
-    kt'       = mapWithKey (\k _ -> evalModal (simplify $ deriveBy k kt) kdomains) 
+    t'        = evalKaucher (deriveBy ix t) domains
+    kt'       = mapWithKey (\k _ -> evalModal (deriveBy k kt) kdomains) 
               $ M.filterWithKey (\k _ -> fst k ==ix) kdomains
     varMonotonic = isMonotonic t'
     allMonotonic = all isMonotonic $ map snd $ M.toList kt'
@@ -103,7 +103,7 @@ dualizer t kt domains kdomains ix
     kdomains' = mapWithKey (\ k v -> if fst k == ix 
                                         then (toDual . monoSign) (kt' ! k) v 
                                         else v) kdomains
-    --incSign   = monoSign . (`evalModal` kdomains) . simplify . (`deriveBy` kt)
+    --incSign   = monoSign . (`evalModal` kdomains) . (`deriveBy` kt)
     toDual s  | s == sign = id
               | otherwise = dual
 {-# INLINE dualizer #-}
@@ -135,7 +135,7 @@ isTotMonotonic :: Tree -> KTree -> Domains -> KDomains -> Int -> Bool
 isTotMonotonic t kt domains kdomains ix = occurrenceMonotonic && varMonotonic
   where
     varMonotonic        = isMonotonic
-                        $ evalKaucher (simplify $ deriveBy ix t) domains
+                        $ evalKaucher (deriveBy ix t) domains
     iys                 = map fst $ M.toList $ M.filterWithKey (\k _ -> fst k ==ix) kdomains -- map fst $ toList ixs
     occurrenceMonotonic = all checkMonotonicity iys
     checkMonotonicity   = isMonotonic . (`evalModal` kdomains) . (`deriveBy` kt)
