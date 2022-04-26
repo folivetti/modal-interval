@@ -1,4 +1,17 @@
 {-# LANGUAGE TupleSections #-}
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  Numeric.ModalInterval.Algorithms
+-- Copyright   :  (c) 2021 Fabrício Olivetti
+-- License     :  BSD3
+-- Maintainer  :  fabricio.olivetti@gmail.com
+-- Stability   :  experimental
+-- Portability :  TupleSections
+--
+-- Kaucher Interval arithmetic algorithms for outer and inner approximations
+-- based on https://tel.archives-ouvertes.fr/tel-00331668/document
+--
+-----------------------------------------------------------------------------
 module Numeric.ModalInterval.Algorithms 
     ( outerApprox
     , innerApprox
@@ -21,10 +34,21 @@ type KTree   = SRTree (Int, Int) (Kaucher Double) -- tree for modal arithmetic w
 type Tree    = SRTree Int (Kaucher Double)
 
 
+-- | Outer approximation of an expression tree given the domains of the variables.
+-- To calculate the outer approximation we need to apply "dualizer" to every
+-- variable that is totally monotonic.
+--
+-- See page 61 of https://tel.archives-ouvertes.fr/tel-00331668/document (Eq. 3.80)
 outerApprox :: Tree -> Domains -> Kaucher Double 
 outerApprox t domains = outF t kt domains kdomains 
     where (kt, kdomains) = mkKTree t domains 
 
+-- | Inner approximation of an expression tree given the domains of the variables.
+-- To calculate the outer approximation we need to apply "dualizer" to every
+-- variable that is totally monotonic and replace those non-monotonic with the midpoint 
+-- of the domain.
+--
+-- See page 61 of https://tel.archives-ouvertes.fr/tel-00331668/document (Eq. 3.79)
 innerApprox :: Tree -> Domains -> Kaucher Double  
 innerApprox t domains = innF t kt domains kdomains 
     where (kt, kdomains) = mkKTree t domains 

@@ -1,0 +1,740 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE TupleSections #-}</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- Module      :  Numeric.ModalInterval.Algorithms</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Copyright   :  (c) 2021 Fabr&#237;cio Olivetti</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- License     :  BSD3</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Maintainer  :  fabricio.olivetti@gmail.com</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- Stability   :  experimental</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- Portability :  TupleSections</span><span>
+</span><span id="line-10"></span><span class="hs-comment">--</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- Kaucher Interval arithmetic algorithms for outer and inner approximations</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- based on https://tel.archives-ouvertes.fr/tel-00331668/document</span><span>
+</span><span id="line-13"></span><span class="hs-comment">--</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-----------------------------------------------------------------------------</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Numeric.ModalInterval.Algorithms</span><span> </span><span>
+</span><span id="line-16"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#outerApprox"><span class="hs-identifier">outerApprox</span></a></span><span>
+</span><span id="line-17"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#innerApprox"><span class="hs-identifier">innerApprox</span></a></span><span>
+</span><span id="line-18"></span><span>    </span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.html"><span class="hs-identifier">Numeric.ModalInterval</span></a></span><span>
+</span><span id="line-22"></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.Monad.State</span></span><span> </span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Map.Strict</span></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">map</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">singleton</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">empty</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">foldr</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">filter</span></span><span class="hs-special">)</span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Map.Strict</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">M</span></span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.SRTree</span></span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">fromMaybe</span></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.SRTree</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">deriveBy</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">relabelOccurrences</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">getChildren</span></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span>
+</span><span id="line-30"></span><span class="hs-keyword">type</span><span> </span><span id="Domains"><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Domains"><span class="hs-identifier hs-var">Domains</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Map</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">type</span><span> </span><span id="KDomains"><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-var">KDomains</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Map</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- the second element is the incidence counter</span><span>
+</span><span id="line-32"></span><span>
+</span><span id="line-33"></span><span class="hs-keyword">type</span><span> </span><span id="KTree"><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KTree"><span class="hs-identifier hs-var">KTree</span></a></span></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">SRTree</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- tree for modal arithmetic with incidences</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">type</span><span> </span><span id="Tree"><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Tree"><span class="hs-identifier hs-var">Tree</span></a></span></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">SRTree</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- | Outer approximation of an expression tree given the domains of the variables.</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- To calculate the outer approximation we need to apply &quot;dualizer&quot; to every</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- variable that is totally monotonic.</span><span>
+</span><span id="line-40"></span><span class="hs-comment">--</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- See page 61 of https://tel.archives-ouvertes.fr/tel-00331668/document (Eq. 3.80)</span><span>
+</span><span id="line-42"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#outerApprox"><span class="hs-identifier hs-type">outerApprox</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Tree"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Domains"><span class="hs-identifier hs-type">Domains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span> </span><span>
+</span><span id="line-43"></span><span id="outerApprox"><span class="annot"><span class="annottext">outerApprox :: Tree -&gt; Domains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#outerApprox"><span class="hs-identifier hs-var hs-var">outerApprox</span></a></span></span><span> </span><span id="local-6989586621679040281"><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040281"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679040280"><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040280"><span class="hs-identifier hs-var">domains</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#outF"><span class="hs-identifier hs-var">outF</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040281"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040278"><span class="hs-identifier hs-var">kt</span></a></span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040280"><span class="hs-identifier hs-var">domains</span></a></span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040277"><span class="hs-identifier hs-var">kdomains</span></a></span><span> </span><span>
+</span><span id="line-44"></span><span>    </span><span class="hs-keyword">where</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679040278"><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040278"><span class="hs-identifier hs-var">kt</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679040277"><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040277"><span class="hs-identifier hs-var">kdomains</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Tree -&gt; Domains -&gt; (KTree, KDomains)
+</span><a href="Numeric.ModalInterval.Algorithms.html#mkKTree"><span class="hs-identifier hs-var">mkKTree</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040281"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040280"><span class="hs-identifier hs-var">domains</span></a></span><span> </span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- | Inner approximation of an expression tree given the domains of the variables.</span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- To calculate the outer approximation we need to apply &quot;dualizer&quot; to every</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- variable that is totally monotonic and replace those non-monotonic with the midpoint </span><span>
+</span><span id="line-49"></span><span class="hs-comment">-- of the domain.</span><span>
+</span><span id="line-50"></span><span class="hs-comment">--</span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- See page 61 of https://tel.archives-ouvertes.fr/tel-00331668/document (Eq. 3.79)</span><span>
+</span><span id="line-52"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#innerApprox"><span class="hs-identifier hs-type">innerApprox</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Tree"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Domains"><span class="hs-identifier hs-type">Domains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span>  </span><span>
+</span><span id="line-53"></span><span id="innerApprox"><span class="annot"><span class="annottext">innerApprox :: Tree -&gt; Domains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#innerApprox"><span class="hs-identifier hs-var hs-var">innerApprox</span></a></span></span><span> </span><span id="local-6989586621679040275"><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040275"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679040274"><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040274"><span class="hs-identifier hs-var">domains</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#innF"><span class="hs-identifier hs-var">innF</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040275"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040272"><span class="hs-identifier hs-var">kt</span></a></span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040274"><span class="hs-identifier hs-var">domains</span></a></span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040271"><span class="hs-identifier hs-var">kdomains</span></a></span><span> </span><span>
+</span><span id="line-54"></span><span>    </span><span class="hs-keyword">where</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679040272"><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040272"><span class="hs-identifier hs-var">kt</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679040271"><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040271"><span class="hs-identifier hs-var">kdomains</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Tree -&gt; Domains -&gt; (KTree, KDomains)
+</span><a href="Numeric.ModalInterval.Algorithms.html#mkKTree"><span class="hs-identifier hs-var">mkKTree</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040275"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040274"><span class="hs-identifier hs-var">domains</span></a></span><span> </span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- | In Modal Arithmetic we have proper Kauchers [a, b] with a &lt;= b</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- and improper Kauchers [a, b] with a &gt; b.</span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- A constraint f(x, y) \subset [a, b] means:</span><span>
+</span><span id="line-60"></span><span class="hs-comment">--</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- if both x, y are proper: for any value of x, y inside their domains, the range of f(x,y) is within [a, b]</span><span>
+</span><span id="line-62"></span><span class="hs-comment">-- if x is proper and y is improper: for any value of x, it exists a value of y which f(x,y) evaluates within [a, b]</span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- if x, y are improper: there exists a value of x and a value of y which f(x,y) evaluates within [a, b]</span><span>
+</span><span id="line-64"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#evalModal"><span class="hs-identifier hs-type">evalModal</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KTree"><span class="hs-identifier hs-type">KTree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-type">KDomains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span>
+</span><span id="line-65"></span><span id="evalModal"><span class="annot"><span class="annottext">evalModal :: KTree -&gt; KDomains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#evalModal"><span class="hs-identifier hs-var hs-var">evalModal</span></a></span></span><span> </span><span id="local-6989586621679040269"><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040269"><span class="hs-identifier hs-var">kt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Maybe (Kaucher Double) -&gt; Kaucher Double
+forall a. a -&gt; Maybe a -&gt; a
+</span><span class="hs-identifier hs-var">fromMaybe</span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+forall a. RealFloat a =&gt; Kaucher a
+</span><a href="Numeric.ModalInterval.Internal.html#empty"><span class="hs-identifier hs-var">empty</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe (Kaucher Double) -&gt; Kaucher Double)
+-&gt; (KDomains -&gt; Maybe (Kaucher Double))
+-&gt; KDomains
+-&gt; Kaucher Double
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">KTree -&gt; KDomains -&gt; Maybe (Kaucher Double)
+forall ix val.
+(Ord ix, Floating val, OptIntPow val) =&gt;
+SRTree ix val -&gt; Map ix val -&gt; Maybe val
+</span><span class="hs-identifier hs-var">evalTreeWithMap</span></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040269"><span class="hs-identifier hs-var">kt</span></a></span><span>
+</span><span id="line-66"></span><span>
+</span><span id="line-67"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#evalKaucher"><span class="hs-identifier hs-type">evalKaucher</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Tree"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Domains"><span class="hs-identifier hs-type">Domains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span>
+</span><span id="line-68"></span><span id="evalKaucher"><span class="annot"><span class="annottext">evalKaucher :: Tree -&gt; Domains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#evalKaucher"><span class="hs-identifier hs-var hs-var">evalKaucher</span></a></span></span><span> </span><span id="local-6989586621679040264"><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040264"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Maybe (Kaucher Double) -&gt; Kaucher Double
+forall a. a -&gt; Maybe a -&gt; a
+</span><span class="hs-identifier hs-var">fromMaybe</span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+forall a. RealFloat a =&gt; Kaucher a
+</span><a href="Numeric.ModalInterval.Internal.html#empty"><span class="hs-identifier hs-var">empty</span></a></span><span> </span><span class="annot"><span class="annottext">(Maybe (Kaucher Double) -&gt; Kaucher Double)
+-&gt; (Domains -&gt; Maybe (Kaucher Double)) -&gt; Domains -&gt; Kaucher Double
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Tree -&gt; Domains -&gt; Maybe (Kaucher Double)
+forall ix val.
+(Ord ix, Floating val, OptIntPow val) =&gt;
+SRTree ix val -&gt; Map ix val -&gt; Maybe val
+</span><span class="hs-identifier hs-var">evalTreeWithMap</span></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040264"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- | Outer approximation of an expression tree given the domains of the variables.</span><span>
+</span><span id="line-71"></span><span class="hs-comment">-- To calculate the outer approximation we need to apply &quot;dualizer&quot; to every</span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- variable that is totally monotonic.</span><span>
+</span><span id="line-73"></span><span class="hs-comment">--</span><span>
+</span><span id="line-74"></span><span class="hs-comment">-- See page 61 of https://tel.archives-ouvertes.fr/tel-00331668/document (Eq. 3.80)</span><span>
+</span><span id="line-75"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#outF"><span class="hs-identifier hs-type">outF</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Tree"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KTree"><span class="hs-identifier hs-type">KTree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Domains"><span class="hs-identifier hs-type">Domains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-type">KDomains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span>
+</span><span id="line-76"></span><span id="outF"><span class="annot"><span class="annottext">outF :: Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#outF"><span class="hs-identifier hs-var hs-var">outF</span></a></span></span><span> </span><span id="local-6989586621679040263"><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040263"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679040262"><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040262"><span class="hs-identifier hs-var">kt</span></a></span></span><span> </span><span id="local-6989586621679040261"><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040261"><span class="hs-identifier hs-var">domains</span></a></span></span><span> </span><span id="local-6989586621679040260"><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040260"><span class="hs-identifier hs-var">kdomains</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KTree -&gt; KDomains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#evalModal"><span class="hs-identifier hs-var">evalModal</span></a></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040262"><span class="hs-identifier hs-var">kt</span></a></span><span> </span><span>
+</span><span id="line-77"></span><span>                           </span><span class="annot"><span class="annottext">(KDomains -&gt; Kaucher Double) -&gt; KDomains -&gt; Kaucher Double
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; KDomains -&gt; KDomains) -&gt; KDomains -&gt; [Int] -&gt; KDomains
+forall (t :: * -&gt; *) a b.
+Foldable t =&gt;
+(a -&gt; b -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><span class="hs-identifier hs-var">foldr</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(KDomains -&gt; Int -&gt; KDomains) -&gt; Int -&gt; KDomains -&gt; KDomains
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><span class="hs-identifier hs-var">flip</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Int -&gt; KDomains
+</span><a href="Numeric.ModalInterval.Algorithms.html#dualizer"><span class="hs-identifier hs-var">dualizer</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040263"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040262"><span class="hs-identifier hs-var">kt</span></a></span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040261"><span class="hs-identifier hs-var">domains</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040260"><span class="hs-identifier hs-var">kdomains</span></a></span><span> </span><span>
+</span><span id="line-78"></span><span>                           </span><span class="annot"><span class="annottext">([Int] -&gt; KDomains) -&gt; [Int] -&gt; KDomains
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Domains -&gt; [Int]
+forall k a. Map k a -&gt; [k]
+</span><span class="hs-identifier hs-var">keys</span></span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040261"><span class="hs-identifier hs-var">domains</span></a></span><span>
+</span><span id="line-79"></span><span>
+</span><span id="line-80"></span><span class="hs-comment">-- | Inner approximation of an expression tree given the domains of the variables.</span><span>
+</span><span id="line-81"></span><span class="hs-comment">-- To calculate the outer approximation we need to apply &quot;dualizer&quot; to every</span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- variable that is totally monotonic and replace those non-monotonic with the midpoint </span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- of the domain.</span><span>
+</span><span id="line-84"></span><span class="hs-comment">--</span><span>
+</span><span id="line-85"></span><span class="hs-comment">-- See page 61 of https://tel.archives-ouvertes.fr/tel-00331668/document (Eq. 3.79)</span><span>
+</span><span id="line-86"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#innF"><span class="hs-identifier hs-type">innF</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Tree"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KTree"><span class="hs-identifier hs-type">KTree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Domains"><span class="hs-identifier hs-type">Domains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-type">KDomains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span>
+</span><span id="line-87"></span><span id="innF"><span class="annot"><span class="annottext">innF :: Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#innF"><span class="hs-identifier hs-var hs-var">innF</span></a></span></span><span> </span><span id="local-6989586621679040255"><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040255"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679040254"><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040254"><span class="hs-identifier hs-var">kt</span></a></span></span><span> </span><span id="local-6989586621679040253"><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040253"><span class="hs-identifier hs-var">domains</span></a></span></span><span> </span><span id="local-6989586621679040252"><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040252"><span class="hs-identifier hs-var">kdomains</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KTree -&gt; KDomains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#evalModal"><span class="hs-identifier hs-var">evalModal</span></a></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040254"><span class="hs-identifier hs-var">kt</span></a></span><span> </span><span>
+</span><span id="line-88"></span><span>                           </span><span class="annot"><span class="annottext">(KDomains -&gt; Kaucher Double) -&gt; KDomains -&gt; Kaucher Double
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; KDomains -&gt; KDomains) -&gt; KDomains -&gt; [Int] -&gt; KDomains
+forall (t :: * -&gt; *) a b.
+Foldable t =&gt;
+(a -&gt; b -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><span class="hs-identifier hs-var">foldr</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(KDomains -&gt; Int -&gt; KDomains) -&gt; Int -&gt; KDomains -&gt; KDomains
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><span class="hs-identifier hs-var">flip</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Int -&gt; KDomains
+</span><a href="Numeric.ModalInterval.Algorithms.html#pointDual"><span class="hs-identifier hs-var">pointDual</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040255"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040254"><span class="hs-identifier hs-var">kt</span></a></span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040253"><span class="hs-identifier hs-var">domains</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040252"><span class="hs-identifier hs-var">kdomains</span></a></span><span>
+</span><span id="line-89"></span><span>                           </span><span class="annot"><span class="annottext">([Int] -&gt; KDomains) -&gt; [Int] -&gt; KDomains
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Domains -&gt; [Int]
+forall k a. Map k a -&gt; [k]
+</span><span class="hs-identifier hs-var">keys</span></span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040253"><span class="hs-identifier hs-var">domains</span></a></span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#pointDual"><span class="hs-identifier hs-type">pointDual</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#dualizer"><span class="hs-identifier hs-type">dualizer</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#pointify"><span class="hs-identifier hs-type">pointify</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Tree"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KTree"><span class="hs-identifier hs-type">KTree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Domains"><span class="hs-identifier hs-type">Domains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-type">KDomains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-type">KDomains</span></a></span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span class="hs-comment">-- | Apply dualizer to those variables that are totally monotonic and </span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- pointify to those non-monotonic, do nothing if the variable has only one incidence.</span><span>
+</span><span id="line-95"></span><span id="pointDual"><span class="annot"><span class="annottext">pointDual :: Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Int -&gt; KDomains
+</span><a href="Numeric.ModalInterval.Algorithms.html#pointDual"><span class="hs-identifier hs-var hs-var">pointDual</span></a></span></span><span> </span><span id="local-6989586621679040249"><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040249"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679040248"><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040248"><span class="hs-identifier hs-var">kt</span></a></span></span><span> </span><span id="local-6989586621679040247"><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040247"><span class="hs-identifier hs-var">domains</span></a></span></span><span> </span><span id="local-6989586621679040246"><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040246"><span class="hs-identifier hs-var">kdomains</span></a></span></span><span> </span><span id="local-6989586621679040245"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040245"><span class="hs-identifier hs-var">ix</span></a></span></span><span>
+</span><span id="line-96"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int -&gt; KDomains -&gt; Int
+</span><a href="Numeric.ModalInterval.Algorithms.html#occurrencesOf"><span class="hs-identifier hs-var">occurrencesOf</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040245"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040246"><span class="hs-identifier hs-var">kdomains</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>          </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040246"><span class="hs-identifier hs-var">kdomains</span></a></span><span>
+</span><span id="line-97"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Int -&gt; Bool
+</span><a href="Numeric.ModalInterval.Algorithms.html#isTotMonotonic"><span class="hs-identifier hs-var">isTotMonotonic</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040249"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040248"><span class="hs-identifier hs-var">kt</span></a></span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040247"><span class="hs-identifier hs-var">domains</span></a></span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040246"><span class="hs-identifier hs-var">kdomains</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040245"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040242"><span class="hs-identifier hs-var">kdomainsDual</span></a></span><span>
+</span><span id="line-98"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span>                               </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040241"><span class="hs-identifier hs-var">kdomainsPoint</span></a></span><span>
+</span><span id="line-99"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-100"></span><span>    </span><span id="local-6989586621679040241"><span class="annot"><span class="annottext">kdomainsPoint :: KDomains
+</span><a href="#local-6989586621679040241"><span class="hs-identifier hs-var hs-var">kdomainsPoint</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; (Kaucher Double -&gt; Kaucher Double) -&gt; KDomains -&gt; KDomains
+</span><a href="Numeric.ModalInterval.Algorithms.html#mapOnKey"><span class="hs-identifier hs-var">mapOnKey</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040245"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double -&gt; Kaucher Double
+forall a. RealFloat a =&gt; a -&gt; Kaucher a
+</span><a href="Numeric.ModalInterval.Internal.html#singleton"><span class="hs-identifier hs-var">singleton</span></a></span><span> </span><span class="annot"><span class="annottext">(Double -&gt; Kaucher Double)
+-&gt; (Kaucher Double -&gt; Double) -&gt; Kaucher Double -&gt; Kaucher Double
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Double
+forall a. Fractional a =&gt; Kaucher a -&gt; a
+</span><a href="Numeric.ModalInterval.Internal.html#midpoint"><span class="hs-identifier hs-var">midpoint</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040246"><span class="hs-identifier hs-var">kdomains</span></a></span><span>
+</span><span id="line-101"></span><span>    </span><span id="local-6989586621679040237"><span class="annot"><span class="annottext">sign :: Int
+</span><a href="#local-6989586621679040237"><span class="hs-identifier hs-var hs-var">sign</span></a></span></span><span>          </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Int
+</span><a href="Numeric.ModalInterval.Algorithms.html#monoSign"><span class="hs-identifier hs-var">monoSign</span></a></span><span> </span><span class="annot"><span class="annottext">(Kaucher Double -&gt; Int) -&gt; Kaucher Double -&gt; Int
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Tree -&gt; Domains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#evalKaucher"><span class="hs-identifier hs-var">evalKaucher</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Tree -&gt; Tree
+forall ix val.
+(Eq ix, Eq val, Floating val, OptIntPow val) =&gt;
+ix -&gt; SRTree ix val -&gt; SRTree ix val
+</span><span class="hs-identifier hs-var">deriveBy</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040245"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040249"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040247"><span class="hs-identifier hs-var">domains</span></a></span><span>
+</span><span id="line-102"></span><span>    </span><span id="local-6989586621679040242"><span class="annot"><span class="annottext">kdomainsDual :: KDomains
+</span><a href="#local-6989586621679040242"><span class="hs-identifier hs-var hs-var">kdomainsDual</span></a></span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; Kaucher Double -&gt; Kaucher Double)
+-&gt; KDomains -&gt; KDomains
+forall k a b. (k -&gt; a -&gt; b) -&gt; Map k a -&gt; Map k b
+</span><span class="hs-identifier hs-var">mapWithKey</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679040234"><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040234"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span id="local-6989586621679040233"><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040233"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Int
+forall a b. (a, b) -&gt; a
+</span><span class="hs-identifier hs-var">fst</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040234"><span class="hs-identifier hs-var">k</span></a></span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040245"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span>
+</span><span id="line-103"></span><span>                                           </span><span class="hs-keyword">then</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Kaucher Double -&gt; Kaucher Double
+forall a. Int -&gt; Kaucher a -&gt; Kaucher a
+</span><a href="#local-6989586621679040232"><span class="hs-identifier hs-var">toDual</span></a></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Kaucher Double -&gt; Kaucher Double)
+-&gt; ((Int, Int) -&gt; Int)
+-&gt; (Int, Int)
+-&gt; Kaucher Double
+-&gt; Kaucher Double
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Int
+</span><a href="#local-6989586621679040231"><span class="hs-identifier hs-var">incSign</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040234"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040233"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span>
+</span><span id="line-104"></span><span>                                           </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040233"><span class="hs-identifier hs-var">v</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040246"><span class="hs-identifier hs-var">kdomains</span></a></span><span> </span><span>
+</span><span id="line-105"></span><span>    </span><span id="local-6989586621679040231"><span class="annot"><span class="annottext">incSign :: (Int, Int) -&gt; Int
+</span><a href="#local-6989586621679040231"><span class="hs-identifier hs-var hs-var">incSign</span></a></span></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Int
+</span><a href="Numeric.ModalInterval.Algorithms.html#monoSign"><span class="hs-identifier hs-var">monoSign</span></a></span><span> </span><span class="annot"><span class="annottext">(Kaucher Double -&gt; Int)
+-&gt; ((Int, Int) -&gt; Kaucher Double) -&gt; (Int, Int) -&gt; Int
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">KTree -&gt; KDomains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#evalModal"><span class="hs-operator hs-var">`evalModal`</span></a></span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040246"><span class="hs-identifier hs-var">kdomains</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(KTree -&gt; Kaucher Double)
+-&gt; ((Int, Int) -&gt; KTree) -&gt; (Int, Int) -&gt; Kaucher Double
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Int, Int) -&gt; KTree -&gt; KTree
+forall ix val.
+(Eq ix, Eq val, Floating val, OptIntPow val) =&gt;
+ix -&gt; SRTree ix val -&gt; SRTree ix val
+</span><span class="hs-operator hs-var">`deriveBy`</span></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040248"><span class="hs-identifier hs-var">kt</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-106"></span><span>    </span><span id="local-6989586621679040232"><span class="annot"><span class="annottext">toDual :: Int -&gt; Kaucher a -&gt; Kaucher a
+</span><a href="#local-6989586621679040232"><span class="hs-identifier hs-var hs-var">toDual</span></a></span></span><span> </span><span id="local-6989586621679040230"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040230"><span class="hs-identifier hs-var">s</span></a></span></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040230"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040237"><span class="hs-identifier hs-var">sign</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher a -&gt; Kaucher a
+forall a. a -&gt; a
+</span><span class="hs-identifier hs-var">id</span></span><span>
+</span><span id="line-107"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher a -&gt; Kaucher a
+forall a. Kaucher a -&gt; Kaucher a
+</span><a href="Numeric.ModalInterval.Internal.html#dual"><span class="hs-identifier hs-var">dual</span></a></span><span>
+</span><span id="line-108"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#pointDual"><span class="hs-pragma hs-type">pointDual</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-109"></span><span>
+</span><span id="line-110"></span><span class="hs-comment">-- | Apply dualizer to the totally monotonic variables, do nothing if the variable has only one incidence.</span><span>
+</span><span id="line-111"></span><span class="hs-comment">-- For every monotonic variable, it replaces the domain of that incidence by its dual if the direction</span><span>
+</span><span id="line-112"></span><span class="hs-comment">-- of monotonicty is opposite to the monotonicity of the variable.</span><span>
+</span><span id="line-113"></span><span class="hs-comment">--</span><span>
+</span><span id="line-114"></span><span class="hs-comment">-- E.g., if xi is monotonically increasing and xij is monotonically decreasing, it replaces the domain </span><span>
+</span><span id="line-115"></span><span class="hs-comment">-- of xij by its dual.</span><span>
+</span><span id="line-116"></span><span id="dualizer"><span class="annot"><span class="annottext">dualizer :: Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Int -&gt; KDomains
+</span><a href="Numeric.ModalInterval.Algorithms.html#dualizer"><span class="hs-identifier hs-var hs-var">dualizer</span></a></span></span><span> </span><span id="local-6989586621679040227"><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040227"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679040226"><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040226"><span class="hs-identifier hs-var">kt</span></a></span></span><span> </span><span id="local-6989586621679040225"><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040225"><span class="hs-identifier hs-var">domains</span></a></span></span><span> </span><span id="local-6989586621679040224"><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040224"><span class="hs-identifier hs-var">kdomains</span></a></span></span><span> </span><span id="local-6989586621679040223"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040223"><span class="hs-identifier hs-var">ix</span></a></span></span><span>
+</span><span id="line-117"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int -&gt; KDomains -&gt; Int
+</span><a href="Numeric.ModalInterval.Algorithms.html#occurrencesOf"><span class="hs-identifier hs-var">occurrencesOf</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040223"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040224"><span class="hs-identifier hs-var">kdomains</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040224"><span class="hs-identifier hs-var">kdomains</span></a></span><span>
+</span><span id="line-118"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679040222"><span class="hs-identifier hs-var">varMonotonic</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679040220"><span class="hs-identifier hs-var">allMonotonic</span></a></span><span>    </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040219"><span class="hs-identifier hs-var">kdomains'</span></a></span><span>
+</span><span id="line-119"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span>                       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040224"><span class="hs-identifier hs-var">kdomains</span></a></span><span>
+</span><span id="line-120"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-121"></span><span>    </span><span id="local-6989586621679040218"><span class="annot"><span class="annottext">t' :: Kaucher Double
+</span><a href="#local-6989586621679040218"><span class="hs-identifier hs-var hs-var">t'</span></a></span></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Tree -&gt; Domains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#evalKaucher"><span class="hs-identifier hs-var">evalKaucher</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Tree -&gt; Tree
+forall ix val.
+(Eq ix, Eq val, Floating val, OptIntPow val) =&gt;
+ix -&gt; SRTree ix val -&gt; SRTree ix val
+</span><span class="hs-identifier hs-var">deriveBy</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040223"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040227"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040225"><span class="hs-identifier hs-var">domains</span></a></span><span>
+</span><span id="line-122"></span><span>    </span><span id="local-6989586621679040217"><span class="annot"><span class="annottext">kt' :: KDomains
+</span><a href="#local-6989586621679040217"><span class="hs-identifier hs-var hs-var">kt'</span></a></span></span><span>       </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; Kaucher Double -&gt; Kaucher Double)
+-&gt; KDomains -&gt; KDomains
+forall k a b. (k -&gt; a -&gt; b) -&gt; Map k a -&gt; Map k b
+</span><span class="hs-identifier hs-var">mapWithKey</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679040216"><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040216"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">KTree -&gt; KDomains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#evalModal"><span class="hs-identifier hs-var">evalModal</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Int, Int) -&gt; KTree -&gt; KTree
+forall ix val.
+(Eq ix, Eq val, Floating val, OptIntPow val) =&gt;
+ix -&gt; SRTree ix val -&gt; SRTree ix val
+</span><span class="hs-identifier hs-var">deriveBy</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040216"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040226"><span class="hs-identifier hs-var">kt</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040224"><span class="hs-identifier hs-var">kdomains</span></a></span><span class="hs-special">)</span><span> </span><span>
+</span><span id="line-123"></span><span>              </span><span class="annot"><span class="annottext">(KDomains -&gt; KDomains) -&gt; KDomains -&gt; KDomains
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; Kaucher Double -&gt; Bool) -&gt; KDomains -&gt; KDomains
+forall k a. (k -&gt; a -&gt; Bool) -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.filterWithKey</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679040214"><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040214"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Int
+forall a b. (a, b) -&gt; a
+</span><span class="hs-identifier hs-var">fst</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040214"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040223"><span class="hs-identifier hs-var">ix</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040224"><span class="hs-identifier hs-var">kdomains</span></a></span><span>
+</span><span id="line-124"></span><span>    </span><span id="local-6989586621679040222"><span class="annot"><span class="annottext">varMonotonic :: Bool
+</span><a href="#local-6989586621679040222"><span class="hs-identifier hs-var hs-var">varMonotonic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Bool
+</span><a href="Numeric.ModalInterval.Algorithms.html#isMonotonic"><span class="hs-identifier hs-var">isMonotonic</span></a></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040218"><span class="hs-identifier hs-var">t'</span></a></span><span>
+</span><span id="line-125"></span><span>    </span><span id="local-6989586621679040220"><span class="annot"><span class="annottext">allMonotonic :: Bool
+</span><a href="#local-6989586621679040220"><span class="hs-identifier hs-var hs-var">allMonotonic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Kaucher Double -&gt; Bool) -&gt; [Kaucher Double] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">all</span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Bool
+</span><a href="Numeric.ModalInterval.Algorithms.html#isMonotonic"><span class="hs-identifier hs-var">isMonotonic</span></a></span><span> </span><span class="annot"><span class="annottext">([Kaucher Double] -&gt; Bool) -&gt; [Kaucher Double] -&gt; Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(((Int, Int), Kaucher Double) -&gt; Kaucher Double)
+-&gt; [((Int, Int), Kaucher Double)] -&gt; [Kaucher Double]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="annot"><span class="annottext">((Int, Int), Kaucher Double) -&gt; Kaucher Double
+forall a b. (a, b) -&gt; b
+</span><span class="hs-identifier hs-var">snd</span></span><span> </span><span class="annot"><span class="annottext">([((Int, Int), Kaucher Double)] -&gt; [Kaucher Double])
+-&gt; [((Int, Int), Kaucher Double)] -&gt; [Kaucher Double]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">KDomains -&gt; [((Int, Int), Kaucher Double)]
+forall k a. Map k a -&gt; [(k, a)]
+</span><span class="hs-identifier hs-var">M.toList</span></span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040217"><span class="hs-identifier hs-var">kt'</span></a></span><span>
+</span><span id="line-126"></span><span>    </span><span id="local-6989586621679040210"><span class="annot"><span class="annottext">sign :: Int
+</span><a href="#local-6989586621679040210"><span class="hs-identifier hs-var hs-var">sign</span></a></span></span><span>      </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Int
+</span><a href="Numeric.ModalInterval.Algorithms.html#monoSign"><span class="hs-identifier hs-var">monoSign</span></a></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040218"><span class="hs-identifier hs-var">t'</span></a></span><span>
+</span><span id="line-127"></span><span>    </span><span id="local-6989586621679040219"><span class="annot"><span class="annottext">kdomains' :: KDomains
+</span><a href="#local-6989586621679040219"><span class="hs-identifier hs-var hs-var">kdomains'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; Kaucher Double -&gt; Kaucher Double)
+-&gt; KDomains -&gt; KDomains
+forall k a b. (k -&gt; a -&gt; b) -&gt; Map k a -&gt; Map k b
+</span><span class="hs-identifier hs-var">mapWithKey</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span> </span><span id="local-6989586621679040209"><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040209"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span id="local-6989586621679040208"><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040208"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Int
+forall a b. (a, b) -&gt; a
+</span><span class="hs-identifier hs-var">fst</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040209"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040223"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span>
+</span><span id="line-128"></span><span>                                        </span><span class="hs-keyword">then</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Kaucher Double -&gt; Kaucher Double
+forall a. Int -&gt; Kaucher a -&gt; Kaucher a
+</span><a href="#local-6989586621679040207"><span class="hs-identifier hs-var">toDual</span></a></span><span> </span><span class="annot"><span class="annottext">(Int -&gt; Kaucher Double -&gt; Kaucher Double)
+-&gt; (Kaucher Double -&gt; Int)
+-&gt; Kaucher Double
+-&gt; Kaucher Double
+-&gt; Kaucher Double
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Int
+</span><a href="Numeric.ModalInterval.Algorithms.html#monoSign"><span class="hs-identifier hs-var">monoSign</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040217"><span class="hs-identifier hs-var">kt'</span></a></span><span> </span><span class="annot"><span class="annottext">KDomains -&gt; (Int, Int) -&gt; Kaucher Double
+forall k a. Ord k =&gt; Map k a -&gt; k -&gt; a
+</span><span class="hs-glyph hs-var">!</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040209"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040208"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span>
+</span><span id="line-129"></span><span>                                        </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040208"><span class="hs-identifier hs-var">v</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040224"><span class="hs-identifier hs-var">kdomains</span></a></span><span>
+</span><span id="line-130"></span><span>    </span><span class="hs-comment">--incSign   = monoSign . (`evalModal` kdomains) . (`deriveBy` kt)</span><span>
+</span><span id="line-131"></span><span>    </span><span id="local-6989586621679040207"><span class="annot"><span class="annottext">toDual :: Int -&gt; Kaucher a -&gt; Kaucher a
+</span><a href="#local-6989586621679040207"><span class="hs-identifier hs-var hs-var">toDual</span></a></span></span><span> </span><span id="local-6989586621679040205"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040205"><span class="hs-identifier hs-var">s</span></a></span></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040205"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040210"><span class="hs-identifier hs-var">sign</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher a -&gt; Kaucher a
+forall a. a -&gt; a
+</span><span class="hs-identifier hs-var">id</span></span><span>
+</span><span id="line-132"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher a -&gt; Kaucher a
+forall a. Kaucher a -&gt; Kaucher a
+</span><a href="Numeric.ModalInterval.Internal.html#dual"><span class="hs-identifier hs-var">dual</span></a></span><span>
+</span><span id="line-133"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#dualizer"><span class="hs-pragma hs-type">dualizer</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-134"></span><span>
+</span><span id="line-135"></span><span class="hs-comment">-- | Apply pointify (midpoint of the domain) to the non-monotonic variables, do nothing if the variable has only one incidence.</span><span>
+</span><span id="line-136"></span><span id="pointify"><span class="annot"><span class="annottext">pointify :: Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Int -&gt; KDomains
+</span><a href="Numeric.ModalInterval.Algorithms.html#pointify"><span class="hs-identifier hs-var hs-var">pointify</span></a></span></span><span> </span><span id="local-6989586621679040204"><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040204"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679040203"><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040203"><span class="hs-identifier hs-var">kt</span></a></span></span><span> </span><span id="local-6989586621679040202"><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040202"><span class="hs-identifier hs-var">domains</span></a></span></span><span> </span><span id="local-6989586621679040201"><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040201"><span class="hs-identifier hs-var">kdomains</span></a></span></span><span> </span><span id="local-6989586621679040200"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040200"><span class="hs-identifier hs-var">ix</span></a></span></span><span>
+</span><span id="line-137"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int -&gt; KDomains -&gt; Int
+</span><a href="Numeric.ModalInterval.Algorithms.html#occurrencesOf"><span class="hs-identifier hs-var">occurrencesOf</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040200"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040201"><span class="hs-identifier hs-var">kdomains</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>          </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040201"><span class="hs-identifier hs-var">kdomains</span></a></span><span>
+</span><span id="line-138"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Int -&gt; Bool
+</span><a href="Numeric.ModalInterval.Algorithms.html#isTotMonotonic"><span class="hs-identifier hs-var">isTotMonotonic</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040204"><span class="hs-identifier hs-var">t</span></a></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040203"><span class="hs-identifier hs-var">kt</span></a></span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040202"><span class="hs-identifier hs-var">domains</span></a></span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040201"><span class="hs-identifier hs-var">kdomains</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040200"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040201"><span class="hs-identifier hs-var">kdomains</span></a></span><span>
+</span><span id="line-139"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span>                               </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040199"><span class="hs-identifier hs-var">kdomains'</span></a></span><span>
+</span><span id="line-140"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-141"></span><span>    </span><span id="local-6989586621679040199"><span class="annot"><span class="annottext">kdomains' :: KDomains
+</span><a href="#local-6989586621679040199"><span class="hs-identifier hs-var hs-var">kdomains'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; (Kaucher Double -&gt; Kaucher Double) -&gt; KDomains -&gt; KDomains
+</span><a href="Numeric.ModalInterval.Algorithms.html#mapOnKey"><span class="hs-identifier hs-var">mapOnKey</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040200"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double -&gt; Kaucher Double
+forall a. RealFloat a =&gt; a -&gt; Kaucher a
+</span><a href="Numeric.ModalInterval.Internal.html#singleton"><span class="hs-identifier hs-var">singleton</span></a></span><span> </span><span class="annot"><span class="annottext">(Double -&gt; Kaucher Double)
+-&gt; (Kaucher Double -&gt; Double) -&gt; Kaucher Double -&gt; Kaucher Double
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Double
+forall a. Fractional a =&gt; Kaucher a -&gt; a
+</span><a href="Numeric.ModalInterval.Internal.html#midpoint"><span class="hs-identifier hs-var">midpoint</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040201"><span class="hs-identifier hs-var">kdomains</span></a></span><span>
+</span><span id="line-142"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#pointify"><span class="hs-pragma hs-type">pointify</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-143"></span><span>
+</span><span id="line-144"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#occurrencesOf"><span class="hs-identifier hs-type">occurrencesOf</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-type">KDomains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-145"></span><span id="occurrencesOf"><span class="annot"><span class="annottext">occurrencesOf :: Int -&gt; KDomains -&gt; Int
+</span><a href="Numeric.ModalInterval.Algorithms.html#occurrencesOf"><span class="hs-identifier hs-var hs-var">occurrencesOf</span></a></span></span><span> </span><span id="local-6989586621679040198"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040198"><span class="hs-identifier hs-var">ix</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">KDomains -&gt; Int
+forall k a. Map k a -&gt; Int
+</span><span class="hs-identifier hs-var">size</span></span><span> </span><span class="annot"><span class="annottext">(KDomains -&gt; Int) -&gt; (KDomains -&gt; KDomains) -&gt; KDomains -&gt; Int
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; Kaucher Double -&gt; Bool) -&gt; KDomains -&gt; KDomains
+forall k a. (k -&gt; a -&gt; Bool) -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.filterWithKey</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679040196"><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040196"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Int
+forall a b. (a, b) -&gt; a
+</span><span class="hs-identifier hs-var">fst</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040196"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040198"><span class="hs-identifier hs-var">ix</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-146"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#occurrencesOf"><span class="hs-pragma hs-type">occurrencesOf</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-147"></span><span>
+</span><span id="line-148"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#mapOnKey"><span class="hs-identifier hs-type">mapOnKey</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-type">KDomains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-type">KDomains</span></a></span><span>
+</span><span id="line-149"></span><span id="mapOnKey"><span class="annot"><span class="annottext">mapOnKey :: Int -&gt; (Kaucher Double -&gt; Kaucher Double) -&gt; KDomains -&gt; KDomains
+</span><a href="Numeric.ModalInterval.Algorithms.html#mapOnKey"><span class="hs-identifier hs-var hs-var">mapOnKey</span></a></span></span><span> </span><span id="local-6989586621679040195"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040195"><span class="hs-identifier hs-var">ix</span></a></span></span><span> </span><span id="local-6989586621679040194"><span class="annot"><span class="annottext">Kaucher Double -&gt; Kaucher Double
+</span><a href="#local-6989586621679040194"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; Kaucher Double -&gt; Kaucher Double)
+-&gt; KDomains -&gt; KDomains
+forall k a b. (k -&gt; a -&gt; b) -&gt; Map k a -&gt; Map k b
+</span><span class="hs-identifier hs-var">M.mapWithKey</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679040193"><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040193"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span id="local-6989586621679040192"><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040192"><span class="hs-identifier hs-var">v</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Int
+forall a b. (a, b) -&gt; a
+</span><span class="hs-identifier hs-var">fst</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040193"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040195"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Kaucher Double
+</span><a href="#local-6989586621679040194"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040192"><span class="hs-identifier hs-var">v</span></a></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040192"><span class="hs-identifier hs-var">v</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-150"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#mapOnKey"><span class="hs-pragma hs-type">mapOnKey</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span class="hs-comment">-- | Check if a variable is totally monotonic.</span><span>
+</span><span id="line-153"></span><span class="hs-comment">--</span><span>
+</span><span id="line-154"></span><span class="hs-comment">-- A variable xi is totally monotonic if:</span><span>
+</span><span id="line-155"></span><span class="hs-comment">-- * xi is monotonic within the domain</span><span>
+</span><span id="line-156"></span><span class="hs-comment">-- * every xij is monotonic within the domain</span><span>
+</span><span id="line-157"></span><span class="hs-comment">-- xij is the j-th occurrence of the i-th variable in the expression</span><span>
+</span><span id="line-158"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#isTotMonotonic"><span class="hs-identifier hs-type">isTotMonotonic</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Tree"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KTree"><span class="hs-identifier hs-type">KTree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Domains"><span class="hs-identifier hs-type">Domains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-type">KDomains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-159"></span><span id="isTotMonotonic"><span class="annot"><span class="annottext">isTotMonotonic :: Tree -&gt; KTree -&gt; Domains -&gt; KDomains -&gt; Int -&gt; Bool
+</span><a href="Numeric.ModalInterval.Algorithms.html#isTotMonotonic"><span class="hs-identifier hs-var hs-var">isTotMonotonic</span></a></span></span><span> </span><span id="local-6989586621679040191"><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040191"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679040190"><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040190"><span class="hs-identifier hs-var">kt</span></a></span></span><span> </span><span id="local-6989586621679040189"><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040189"><span class="hs-identifier hs-var">domains</span></a></span></span><span> </span><span id="local-6989586621679040188"><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040188"><span class="hs-identifier hs-var">kdomains</span></a></span></span><span> </span><span id="local-6989586621679040187"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040187"><span class="hs-identifier hs-var">ix</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679040186"><span class="hs-identifier hs-var">occurrenceMonotonic</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679040185"><span class="hs-identifier hs-var">varMonotonic</span></a></span><span>
+</span><span id="line-160"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-161"></span><span>    </span><span id="local-6989586621679040185"><span class="annot"><span class="annottext">varMonotonic :: Bool
+</span><a href="#local-6989586621679040185"><span class="hs-identifier hs-var hs-var">varMonotonic</span></a></span></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Bool
+</span><a href="Numeric.ModalInterval.Algorithms.html#isMonotonic"><span class="hs-identifier hs-var">isMonotonic</span></a></span><span>
+</span><span id="line-162"></span><span>                        </span><span class="annot"><span class="annottext">(Kaucher Double -&gt; Bool) -&gt; Kaucher Double -&gt; Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Tree -&gt; Domains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#evalKaucher"><span class="hs-identifier hs-var">evalKaucher</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Tree -&gt; Tree
+forall ix val.
+(Eq ix, Eq val, Floating val, OptIntPow val) =&gt;
+ix -&gt; SRTree ix val -&gt; SRTree ix val
+</span><span class="hs-identifier hs-var">deriveBy</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040187"><span class="hs-identifier hs-var">ix</span></a></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040191"><span class="hs-identifier hs-var">t</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040189"><span class="hs-identifier hs-var">domains</span></a></span><span>
+</span><span id="line-163"></span><span>    </span><span id="local-6989586621679040184"><span class="annot"><span class="annottext">iys :: [(Int, Int)]
+</span><a href="#local-6989586621679040184"><span class="hs-identifier hs-var hs-var">iys</span></a></span></span><span>                 </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(((Int, Int), Kaucher Double) -&gt; (Int, Int))
+-&gt; [((Int, Int), Kaucher Double)] -&gt; [(Int, Int)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="annot"><span class="annottext">((Int, Int), Kaucher Double) -&gt; (Int, Int)
+forall a b. (a, b) -&gt; a
+</span><span class="hs-identifier hs-var">fst</span></span><span> </span><span class="annot"><span class="annottext">([((Int, Int), Kaucher Double)] -&gt; [(Int, Int)])
+-&gt; [((Int, Int), Kaucher Double)] -&gt; [(Int, Int)]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">KDomains -&gt; [((Int, Int), Kaucher Double)]
+forall k a. Map k a -&gt; [(k, a)]
+</span><span class="hs-identifier hs-var">M.toList</span></span><span> </span><span class="annot"><span class="annottext">(KDomains -&gt; [((Int, Int), Kaucher Double)])
+-&gt; KDomains -&gt; [((Int, Int), Kaucher Double)]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; Kaucher Double -&gt; Bool) -&gt; KDomains -&gt; KDomains
+forall k a. (k -&gt; a -&gt; Bool) -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.filterWithKey</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679040183"><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040183"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Int
+forall a b. (a, b) -&gt; a
+</span><span class="hs-identifier hs-var">fst</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040183"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679040187"><span class="hs-identifier hs-var">ix</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040188"><span class="hs-identifier hs-var">kdomains</span></a></span><span> </span><span class="hs-comment">-- map fst $ toList ixs</span><span>
+</span><span id="line-164"></span><span>    </span><span id="local-6989586621679040186"><span class="annot"><span class="annottext">occurrenceMonotonic :: Bool
+</span><a href="#local-6989586621679040186"><span class="hs-identifier hs-var hs-var">occurrenceMonotonic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; Bool) -&gt; [(Int, Int)] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">all</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Bool
+</span><a href="#local-6989586621679040182"><span class="hs-identifier hs-var">checkMonotonicity</span></a></span><span> </span><span class="annot"><span class="annottext">[(Int, Int)]
+</span><a href="#local-6989586621679040184"><span class="hs-identifier hs-var">iys</span></a></span><span>
+</span><span id="line-165"></span><span>    </span><span id="local-6989586621679040182"><span class="annot"><span class="annottext">checkMonotonicity :: (Int, Int) -&gt; Bool
+</span><a href="#local-6989586621679040182"><span class="hs-identifier hs-var hs-var">checkMonotonicity</span></a></span></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Bool
+</span><a href="Numeric.ModalInterval.Algorithms.html#isMonotonic"><span class="hs-identifier hs-var">isMonotonic</span></a></span><span> </span><span class="annot"><span class="annottext">(Kaucher Double -&gt; Bool)
+-&gt; ((Int, Int) -&gt; Kaucher Double) -&gt; (Int, Int) -&gt; Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">KTree -&gt; KDomains -&gt; Kaucher Double
+</span><a href="Numeric.ModalInterval.Algorithms.html#evalModal"><span class="hs-operator hs-var">`evalModal`</span></a></span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040188"><span class="hs-identifier hs-var">kdomains</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(KTree -&gt; Kaucher Double)
+-&gt; ((Int, Int) -&gt; KTree) -&gt; (Int, Int) -&gt; Kaucher Double
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Int, Int) -&gt; KTree -&gt; KTree
+forall ix val.
+(Eq ix, Eq val, Floating val, OptIntPow val) =&gt;
+ix -&gt; SRTree ix val -&gt; SRTree ix val
+</span><span class="hs-operator hs-var">`deriveBy`</span></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040190"><span class="hs-identifier hs-var">kt</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-166"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#isTotMonotonic"><span class="hs-pragma hs-type">isTotMonotonic</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-167"></span><span>
+</span><span id="line-168"></span><span class="hs-comment">-- | Calculate the sign of the monotonicity</span><span>
+</span><span id="line-169"></span><span class="hs-comment">-- -1 means decreasing, 0 means non-monotonic, 1 means increasing</span><span>
+</span><span id="line-170"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#monoSign"><span class="hs-identifier hs-type">monoSign</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-171"></span><span id="monoSign"><span class="annot"><span class="annottext">monoSign :: Kaucher Double -&gt; Int
+</span><a href="Numeric.ModalInterval.Algorithms.html#monoSign"><span class="hs-identifier hs-var hs-var">monoSign</span></a></span></span><span> </span><span id="local-6989586621679040181"><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040181"><span class="hs-identifier hs-var">img</span></a></span></span><span>
+</span><span id="line-172"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040181"><span class="hs-identifier hs-var">img</span></a></span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Kaucher Double -&gt; Bool
+forall a. Ord a =&gt; Kaucher a -&gt; Kaucher a -&gt; Bool
+</span><a href="Numeric.ModalInterval.Internal.html#isSubsetOf"><span class="hs-operator hs-var">`isSubsetOf`</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Kaucher Double
+forall a. RealFloat a =&gt; a -&gt; a -&gt; Kaucher a
+</span><a href="Numeric.ModalInterval.Internal.html#%3C.%3C"><span class="hs-operator hs-var">&lt;.&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">1</span></span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">/</span></span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-173"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040181"><span class="hs-identifier hs-var">img</span></a></span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Kaucher Double -&gt; Bool
+forall a. Ord a =&gt; Kaucher a -&gt; Kaucher a -&gt; Bool
+</span><a href="Numeric.ModalInterval.Internal.html#isSubsetOf"><span class="hs-operator hs-var">`isSubsetOf`</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">-</span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">1</span></span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">/</span></span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Kaucher Double
+forall a. RealFloat a =&gt; a -&gt; a -&gt; Kaucher a
+</span><a href="Numeric.ModalInterval.Internal.html#%3C.%3C"><span class="hs-operator hs-var">&lt;.&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-glyph">-</span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-174"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span>                     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-175"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#monoSign"><span class="hs-pragma hs-type">monoSign</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-176"></span><span>
+</span><span id="line-177"></span><span class="hs-comment">-- | Given the image of the partial derivative of an expression w.r.t. a variable,</span><span>
+</span><span id="line-178"></span><span class="hs-comment">-- returns whether it is monotonic or not.</span><span>
+</span><span id="line-179"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#isMonotonic"><span class="hs-identifier hs-type">isMonotonic</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Internal.html#Kaucher"><span class="hs-identifier hs-type">Kaucher</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Double</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-180"></span><span id="isMonotonic"><span class="annot"><span class="annottext">isMonotonic :: Kaucher Double -&gt; Bool
+</span><a href="Numeric.ModalInterval.Algorithms.html#isMonotonic"><span class="hs-identifier hs-var hs-var">isMonotonic</span></a></span></span><span> </span><span id="local-6989586621679040177"><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040177"><span class="hs-identifier hs-var">img</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040177"><span class="hs-identifier hs-var">img</span></a></span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Kaucher Double -&gt; Bool
+forall a. Ord a =&gt; Kaucher a -&gt; Kaucher a -&gt; Bool
+</span><a href="Numeric.ModalInterval.Internal.html#isSubsetOf"><span class="hs-operator hs-var">`isSubsetOf`</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Kaucher Double
+forall a. RealFloat a =&gt; a -&gt; a -&gt; Kaucher a
+</span><a href="Numeric.ModalInterval.Internal.html#%3C.%3C"><span class="hs-operator hs-var">&lt;.&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">1</span></span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">/</span></span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Kaucher Double
+</span><a href="#local-6989586621679040177"><span class="hs-identifier hs-var">img</span></a></span><span> </span><span class="annot"><span class="annottext">Kaucher Double -&gt; Kaucher Double -&gt; Bool
+forall a. Ord a =&gt; Kaucher a -&gt; Kaucher a -&gt; Bool
+</span><a href="Numeric.ModalInterval.Internal.html#isSubsetOf"><span class="hs-operator hs-var">`isSubsetOf`</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">-</span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">1</span></span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Double
+forall a. Fractional a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">/</span></span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Double -&gt; Double -&gt; Kaucher Double
+forall a. RealFloat a =&gt; a -&gt; a -&gt; Kaucher a
+</span><a href="Numeric.ModalInterval.Internal.html#%3C.%3C"><span class="hs-operator hs-var">&lt;.&lt;</span></a></span><span> </span><span class="annot"><span class="annottext">Double
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span>
+</span><span id="line-181"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#isMonotonic"><span class="hs-pragma hs-type">isMonotonic</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-182"></span><span>
+</span><span id="line-183"></span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#mkKTree"><span class="hs-identifier hs-type">mkKTree</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Tree"><span class="hs-identifier hs-type">Tree</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#Domains"><span class="hs-identifier hs-type">Domains</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KTree"><span class="hs-identifier hs-type">KTree</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#KDomains"><span class="hs-identifier hs-type">KDomains</span></a></span><span class="hs-special">)</span><span> </span><span>
+</span><span id="line-184"></span><span id="mkKTree"><span class="annot"><span class="annottext">mkKTree :: Tree -&gt; Domains -&gt; (KTree, KDomains)
+</span><a href="Numeric.ModalInterval.Algorithms.html#mkKTree"><span class="hs-identifier hs-var hs-var">mkKTree</span></a></span></span><span> </span><span id="local-6989586621679040175"><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040175"><span class="hs-identifier hs-var">t</span></a></span></span><span> </span><span id="local-6989586621679040174"><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040174"><span class="hs-identifier hs-var">domains</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040173"><span class="hs-identifier hs-var">kt</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">KDomains
+</span><a href="#local-6989586621679040172"><span class="hs-identifier hs-var">kdomains</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-185"></span><span>  </span><span class="hs-keyword">where</span><span> </span><span>
+</span><span id="line-186"></span><span>    </span><span class="annot"><a href="#local-6989586621679040171"><span class="hs-identifier hs-type">getVar</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">State</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-187"></span><span>    </span><span id="local-6989586621679040171"><span class="annot"><span class="annottext">getVar :: (Int, Int) -&gt; State [(Int, Int)] ()
+</span><a href="#local-6989586621679040171"><span class="hs-identifier hs-var hs-var">getVar</span></a></span></span><span> </span><span id="local-6989586621679040170"><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040170"><span class="hs-identifier hs-var">ix</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span> </span><span id="local-6989586621679040169"><span class="annot"><span class="annottext">[(Int, Int)]
+</span><a href="#local-6989586621679040169"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">StateT [(Int, Int)] Identity [(Int, Int)]
+forall s (m :: * -&gt; *). MonadState s m =&gt; m s
+</span><span class="hs-identifier hs-var">get</span></span><span> </span><span>
+</span><span id="line-188"></span><span>                   </span><span class="annot"><span class="annottext">[(Int, Int)] -&gt; State [(Int, Int)] ()
+forall s (m :: * -&gt; *). MonadState s m =&gt; s -&gt; m ()
+</span><span class="hs-identifier hs-var">put</span></span><span> </span><span class="annot"><span class="annottext">([(Int, Int)] -&gt; State [(Int, Int)] ())
+-&gt; [(Int, Int)] -&gt; State [(Int, Int)] ()
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">[(Int, Int)]
+</span><a href="#local-6989586621679040169"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">[(Int, Int)] -&gt; [(Int, Int)] -&gt; [(Int, Int)]
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040170"><span class="hs-identifier hs-var">ix</span></a></span><span class="hs-special">]</span><span> </span><span>
+</span><span id="line-189"></span><span>                   </span><span class="annot"><span class="annottext">() -&gt; State [(Int, Int)] ()
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span>
+</span><span id="line-190"></span><span>    </span><span id="local-6989586621679040173"><span class="annot"><span class="annottext">kt :: KTree
+</span><a href="#local-6989586621679040173"><span class="hs-identifier hs-var hs-var">kt</span></a></span></span><span>              </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Tree -&gt; KTree
+forall ix val. Ord ix =&gt; SRTree ix val -&gt; SRTree (ix, Int) val
+</span><span class="hs-identifier hs-var">relabelOccurrences</span></span><span> </span><span class="annot"><span class="annottext">Tree
+</span><a href="#local-6989586621679040175"><span class="hs-identifier hs-var">t</span></a></span><span>
+</span><span id="line-191"></span><span>    </span><span id="local-6989586621679040172"><span class="annot"><span class="annottext">kdomains :: KDomains
+</span><a href="#local-6989586621679040172"><span class="hs-identifier hs-var hs-var">kdomains</span></a></span></span><span>        </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[((Int, Int), Kaucher Double)] -&gt; KDomains
+forall k a. Ord k =&gt; [(k, a)] -&gt; Map k a
+</span><span class="hs-identifier hs-var">fromList</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040165"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Domains
+</span><a href="#local-6989586621679040174"><span class="hs-identifier hs-var">domains</span></a></span><span> </span><span class="annot"><span class="annottext">Domains -&gt; Int -&gt; Kaucher Double
+forall k a. Ord k =&gt; Map k a -&gt; k -&gt; a
+</span><span class="hs-glyph hs-var">!</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; Int
+forall a b. (a, b) -&gt; a
+</span><span class="hs-identifier hs-var">fst</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040165"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">|</span><span> </span><span id="local-6989586621679040165"><span class="annot"><span class="annottext">(Int, Int)
+</span><a href="#local-6989586621679040165"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">((Int, Int) -&gt; State [(Int, Int)] ())
+-&gt; KTree
+-&gt; StateT [(Int, Int)] Identity (SRTree () (Kaucher Double))
+forall (f :: * -&gt; *) ixa ixb val.
+Applicative f =&gt;
+(ixa -&gt; f ixb) -&gt; SRTree ixa val -&gt; f (SRTree ixb val)
+</span><span class="hs-identifier hs-var">traverseIx</span></span><span> </span><span class="annot"><span class="annottext">(Int, Int) -&gt; State [(Int, Int)] ()
+</span><a href="#local-6989586621679040171"><span class="hs-identifier hs-var">getVar</span></a></span><span> </span><span class="annot"><span class="annottext">KTree
+</span><a href="#local-6989586621679040173"><span class="hs-identifier hs-var">kt</span></a></span><span> </span><span class="annot"><span class="annottext">StateT [(Int, Int)] Identity (SRTree () (Kaucher Double))
+-&gt; [(Int, Int)] -&gt; [(Int, Int)]
+forall s a. State s a -&gt; s -&gt; s
+</span><span class="hs-operator hs-var">`execState`</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-special">]</span><span>
+</span><span id="line-192"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Numeric.ModalInterval.Algorithms.html#mkKTree"><span class="hs-pragma hs-type">mkKTree</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-193"></span></pre></body></html>
