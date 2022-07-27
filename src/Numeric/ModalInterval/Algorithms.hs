@@ -15,6 +15,8 @@
 module Numeric.ModalInterval.Algorithms 
     ( outerApprox
     , innerApprox
+    , meanValue
+    , evalKaucher
     )
     where
 
@@ -190,3 +192,13 @@ mkKTree t domains = (kt, kdomains)
     kt              = relabelOccurrences t
     kdomains        = fromList [(k, domains ! fst k) | k <- traverseIx getVar kt `execState` [] ]
 {-# INLINE mkKTree #-}
+
+meanValue :: Tree -> Domains -> Kaucher Double
+meanValue expr domain = innerApprox expr domain + sum [derivTerms ix | ix <- [0..dim-1]]
+  where
+    derivTerms ix -- | isMonotonic $ evalKaucher (deriveBy ix expr) domain = singleton 0.0
+                  | otherwise = outerApprox (deriveBy ix expr) (M.map proper domain) * (domain M.! ix - domain' M.! ix)
+    dim = M.size domain
+    mid = singleton . midpoint
+    domain' = M.map mid domain 
+{-# INLINE meanValue #-}
